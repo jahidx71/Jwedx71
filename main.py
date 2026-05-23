@@ -3,7 +3,7 @@ import os
 import sys
 import subprocess
 
-# ✅ প্রয়োজনীয় প্যাকেজ অটো-ইনস্টল (Render-এর জন্য)
+# ✅ প্রয়োজনীয় packages অটো-ইনস্টল
 def auto_install(package):
     try:
         __import__(package)
@@ -24,14 +24,11 @@ from threading import Thread
 app = Flask('')
 app.secret_key = "x71_secret_key_for_hosting"
 
-# বোতস এবং ফাইল ট্র্যাকিংয়ের জন্য ডামি বা গ্লোবাল ডিকশনারি (আপনার আসল কোডের সাথে মিলিয়ে নেবেন)
-# আপনার মূল কোডের active_users, bot_scripts ইত্যাদি ভেরিয়েবল এখানে কাজ করবে।
+# গ্লোবাল ডিকশনারি ট্র্যাকিং
 if 'bot_scripts' not in globals():
     bot_scripts = {}
-if 'user_files' not in globals():
-    user_files = {}
 
-# 📱 মোবাইল ফ্রেন্ডলি মেটেরিয়াল ডিজাইন ড্যাশবোর্ড (HTML + CSS)
+# 📱 সম্পূর্ণ মোবাইল ফ্রেন্ডলি ও ফিক্সড HTML ড্যাশবোর্ড
 UPLOAD_HTML = """
 <!DOCTYPE html>
 <html lang="bn">
@@ -80,11 +77,13 @@ UPLOAD_HTML = """
 </head>
 <body>
     <div class="container">
+        <!-- Header -->
         <div class="header">
             <h1>🚀 X71 HOSTING WEB PANEL</h1>
             <p>আপনার পাইথন ও জিপ ফাইল মোবাইল থেকেই হোস্ট করুন</p>
         </div>
 
+        <!-- System Stats -->
         <div class="stats-grid">
             <div class="stat-card">
                 <h3>রানিং বট স্ক্রিপ্ট</h3>
@@ -96,6 +95,7 @@ UPLOAD_HTML = """
             </div>
         </div>
 
+        <!-- Flash Message Notification -->
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
             {% for category, message in messages %}
@@ -104,6 +104,7 @@ UPLOAD_HTML = """
           {% endif %}
         {% endwith %}
 
+        <!-- File Upload Card -->
         <div class="card">
             <h2>📁 নতুন ফাইল আপলোড করুন</h2>
             <form action="/upload" method="POST" enctype="multipart/form-data">
@@ -119,6 +120,7 @@ UPLOAD_HTML = """
             </form>
         </div>
 
+        <!-- Active Scripts List -->
         <div class="card">
             <h2>📜 সচল স্ক্রিপ্ট সমূহ (Active Scripts)</h2>
             {% for key, info in bot_scripts.items() %}
@@ -131,7 +133,6 @@ UPLOAD_HTML = """
                     <span class="badge">🟢 Running</span>
                 </div>
             </div>
-            {% tragedies %}
             {% else %}
             <p style="text-align: center; color: #64748b; font-size: 14px; padding: 10px;">বর্তমানে কোনো ফাইল রান করা নেই।</p>
             {% endfor %}
@@ -157,27 +158,21 @@ def upload_file():
         return redirect(url_for('home'))
     
     filename = file.filename
-    # ফাইল এক্সটেনশন চেক (.py, .zip)
     if not (filename.endswith('.py') or filename.endswith('.zip') or filename.endswith('.js')):
         flash("❌ শুধুমাত্র .py, .js অথবা .zip ফাইল আপলোড করা সম্ভব।", "error")
         return redirect(url_for('home'))
     
-    # 📁 এখানে ফাইল সেভ এবং রান করার লজিক (আপনার আসল main.py এর হ্যান্ডলারের মতো)
-    # উদাহরণস্বরূপ একটি ডামি সেভ অ্যান্ড রান প্রসেস:
     try:
-        # ফাইলটি সেভ করার জন্য একটি টেম্পোরারি বা নির্দিষ্ট ডিরেক্টরি ব্যবহার করুন
         target_dir = os.path.join(os.getcwd(), "hosted_bots", user_id)
         os.makedirs(target_dir, exist_ok=True)
         file_path = os.path.join(target_dir, filename)
         file.save(file_path)
         
-        # জিপ ফাইল হলে আনজিপ করার লজিক
         if filename.endswith('.zip'):
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(target_dir)
         
-        # আপনার অরিজিনাল মেইন ফাইলের `start_bot_process` ফাংশনটি এখানে কল হবে।
-        # ডামি ট্র্যাকিং ডেটা যোগ করা হচ্ছে ড্যাশবোর্ডে দেখানোর জন্য:
+        # এখানে আপনার মূল ফাইলের সাবপ্রসেস রান করার কোড বা ফাংশনটি ট্রিগার করবেন।
         bot_scripts[user_id] = {
             "file_name": filename,
             "script_owner_id": user_id,
@@ -186,7 +181,7 @@ def upload_file():
         
         flash(f"✅ {filename} সফলভাবে আপলোড হয়েছে এবং রান করা হয়েছে!", "success")
     except Exception as e:
-        flash(f"❌ ফাইল রান করতে সমস্যা হয়েছে: {str(e)}", "error")
+        flash(f"❌ ফাইল রান করতে समस्या হয়েছে: {str(e)}", "error")
 
     return redirect(url_for('home'))
 
@@ -200,21 +195,18 @@ def keep_alive():
     t.start()
 
 # --- Telegram Bot Activation ---
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE" # আপনার আসল টোকেনটি এখানে বসাবেন
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE" # আপনার আসল টোকেন দিন (অপশনাল)
 
 if __name__ == '__main__':
-    # ১. ওয়েবসাইট ও ফাইল আপলোডার চালু করা
     print("🌐 Mobile Responsive Web Server starting...")
     keep_alive()
     
-    # ২. টেলিগ্রাম বট চালু করা (যদি টোকেন দেওয়া থাকে)
-    if BOT_TOKEN != "YOUR_BOT_TOKEN_HERE":
+    if BOT_TOKEN != "YOUR_BOT_TOKEN_HERE" and BOT_TOKEN != "":
         bot = telebot.TeleBot(BOT_TOKEN)
         print("🤖 Telegram Bot Polling started...")
         # bot.infinity_polling()
     else:
-        print("⚠️ Telegram BOT_TOKEN setup করা হয়নি। শুধু ওয়েব প্যানেলটি চালু রয়েছে।")
-        # Render-কে চালু রাখার জন্য মেইন থ্রেড হোল্ড করা
+        print("⚠️ Telegram BOT_TOKEN দেওয়া হয়নি। শুধু ওয়েব প্যানেল সচল থাকবে।")
         import time
         while True:
             time.sleep(3600)
