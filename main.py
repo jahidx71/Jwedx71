@@ -22,7 +22,7 @@ INTERFACE_HTML = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X71 HOSTING PANEL</title>
+    <title>X71 HOSTING</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f172a; color: #f8fafc; padding: 15px; }
@@ -49,8 +49,8 @@ INTERFACE_HTML = """
 <body>
     <div class="container">
         <div class="header">
-            <h1>X71 HOSTING PANEL</h1>
-            <p>Mobile Device Storage Sync Enabled</p>
+            <h1>X71 HOSTING</h1>
+            <p>Telegram - @jahidx71</p>
         </div>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -87,7 +87,7 @@ INTERFACE_HTML = """
 
         <!-- ACTIVE SCRIPTS CARD (SAVED IN YOUR MOBILE STORAGE) -->
         <div class="card">
-            <h2>Your Active Scripts (Click to Delete)</h2>
+            <h2>Your Active Scripts</h2>
             <div id="localFilesList">
                 <!-- আপনার মোবাইলে সেভ থাকা ফাইলগুলো এখানে জাভাস্ক্রিপ্ট দিয়ে শো হবে -->
             </div>
@@ -118,7 +118,7 @@ INTERFACE_HTML = """
             let keys = Object.keys(savedFiles);
 
             if (keys.length === 0) {
-                listContainer.innerHTML = '<p style="text-align: center; color: #64748b; font-size: 13px; padding: 10px;">No scripts saved on this device.</p>';
+                listContainer.innerHTML = '<p style="text-align: center; color: #64748b; font-size: 13px; padding: 10px;">No script.</p>';
                 return;
             }
 
@@ -129,7 +129,7 @@ INTERFACE_HTML = """
                     <div class="script-item" onclick="deleteLocalFile('${id}', '${filename}')">
                         <div class="script-info">
                             <h4>${filename}</h4>
-                            <p>Stored on this phone</p>
+                            <p>Click To Delete</p>
                         </div>
                         <div>
                             <span class="badge-status" id="badge-${id}">Active</span>
