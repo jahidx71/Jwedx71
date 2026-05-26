@@ -257,7 +257,7 @@ def home():
 
 @app.route('/login', methods=['POST'])
 def login():
-    if request.form.get('password') == "@jahidx71":
+    if request.form.get('password') == "@m1x71jahidfah":
         session['logged_in'] = True
     else:
         flash("Wrong password 🔑", "error")
@@ -338,4 +338,5 @@ def delete_script(unique_id):
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
-                              
+
+                
