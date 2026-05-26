@@ -7,7 +7,9 @@ import shutil
 import time
 import base64
 import requests
+import urllib.request
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session
+from threading import Thread
 
 # --- Flask App Setup ---
 app = Flask('')
@@ -23,13 +25,17 @@ running_processes = {}
 def execute_bot(target_dir, filename, unique_id):
     try:
         stop_bot_process(unique_id)
+        time.sleep(1) 
         
         file_path = os.path.join(target_dir, filename)
         if filename.endswith('.zip') and not os.path.exists(os.path.join(target_dir, "requirements.txt")):
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(target_dir)
             if os.path.exists(os.path.join(target_dir, "requirements.txt")):
-                subprocess.Popen([sys.executable, "-m", "pip", "install", "-r", os.path.join(target_dir, "requirements.txt")])
+                try:
+                    subprocess.run([sys.executable, "-m", "pip", "install", "-r", os.path.join(target_dir, "requirements.txt")], check=True)
+                except Exception as pip_err:
+                    print(f"Pip install warning: {str(pip_err)}")
             
             all_files = os.listdir(target_dir)
             for f in ["main.py", "bot.py", "index.js", "app.js"]:
@@ -43,25 +49,29 @@ def execute_bot(target_dir, filename, unique_id):
         if filename.endswith('.py'):
             proc = subprocess.Popen([sys.executable, full_run_path], cwd=target_dir)
             running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename}
+            print(f"🚀 Python Bot Started: {filename} (ID: {unique_id})")
         elif filename.endswith('.js'):
             proc = subprocess.Popen(["node", full_run_path], cwd=target_dir)
             running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename}
+            print(f"🚀 Node.js Bot Started: {filename} (ID: {unique_id})")
     except Exception as e:
         print(f"Error executing bot {unique_id}: {str(e)}")
 
 def stop_bot_process(unique_id):
     if unique_id in running_processes:
         try:
+            pid = running_processes[unique_id]["process"].pid
+            print(f"Stopping process ID: {pid} for Bot ID: {unique_id}")
             running_processes[unique_id]["process"].terminate()
-            running_processes[unique_id]["process"].wait(timeout=2)
+            running_processes[unique_id]["process"].wait(timeout=3)
         except:
             try:
                 running_processes[unique_id]["process"].kill()
             except:
                 pass
-        del running_processes[unique_id]
+        running_processes.pop(unique_id, None)
 
-# 🔄 ফায়ারবেস ডাটাবেজ থেকে রিস্টার্ট করার ফাংশন
+# 🔄 ফায়ারবেস ডাটাবেজ থেকে অটো-রিস্টার্ট ফাংশন
 def restore_all_scripts():
     print("🔄 Syncing and restoring scripts directly from Firebase Free DB...")
     try:
@@ -87,11 +97,25 @@ def restore_all_scripts():
     except Exception as e:
         print(f"❌ Restore failed: {str(e)}")
 
-# অ্যাপ স্টার্ট হওয়ার সময় স্ক্রিপ্টগুলো রিস্টার্ট হবে
+# অ্যাপ স্টার্ট হওয়ার সময় স্ক্রিপ্টগুলো ব্যাকগ্রাউন্ডে রিস্টার্ট হবে
 with app.app_context():
     restore_all_scripts()
 
-# --- গ্লোবাল মোবাইল ফ্রেন্ডলি ইন্টারফেস (সবার জন্য দৃশ্যমান) ---
+# ⚡ সার্ভারকে ঘুম থেকে জাগিয়ে রাখার জন্য সেলফ-পিং মেথড ⚡
+def self_ping():
+    # 🌟 আপনার দেওয়া আসল রেন্ডার লিংক এখানে যুক্ত করা হয়েছে
+    your_render_url = "https://x71hosting.onrender.com/" 
+    
+    while True:
+        try:
+            time.sleep(240)  # প্রতি ৪ মিনিট পর পর হিট করবে
+            if your_render_url.startswith("http"):
+                urllib.request.urlopen(your_render_url, timeout=30)
+                print("🚀 Self-Ping Sent: Panel Kept Alive Successfully!")
+        except Exception as e:
+            print(f"⚠️ Self-Ping Tracker: {str(e)}")
+
+# --- গ্লোবাল মোবাইল ফ্রেন্ডলি ইন্টারফেস ---
 INTERFACE_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -181,7 +205,6 @@ INTERFACE_HTML = """
     </div>
 
     <script>
-        // 🌟 ফায়ারবেস থেকে সরাসরি ডাটা এনে গ্লোবাল লিস্ট তৈরি করার মেথড (সবাই দেখতে পাবে)
         async function loadGlobalScripts() {
             const listContainer = document.getElementById('localFilesList');
             if (!listContainer) return;
@@ -197,7 +220,6 @@ INTERFACE_HTML = """
 
                 listContainer.innerHTML = '';
                 
-                // ফায়ারবেসের ডাটা লুপ করে সবার স্ক্রিনে লিস্ট রেন্ডার করা হচ্ছে
                 Object.keys(dbData).forEach(id => {
                     let filename = dbData[id].filename;
                     let currentStatus = dbData[id].status || "ON";
@@ -244,7 +266,6 @@ INTERFACE_HTML = """
             window.location.href = `/delete/${id}`;
         }
 
-        // পেজ লোড হলেই লিস্ট লোড হবে গ্লোবালি
         document.addEventListener("DOMContentLoaded", loadGlobalScripts);
     </script>
 </body>
@@ -257,7 +278,7 @@ def home():
 
 @app.route('/login', methods=['POST'])
 def login():
-    if request.form.get('password') == "@m1x71jahidfah":
+    if request.form.get('password') == "@jahidx71":
         session['logged_in'] = True
     else:
         flash("Wrong password 🔑", "error")
@@ -336,7 +357,11 @@ def delete_script(unique_id):
     return redirect(url_for('home'))
 
 if __name__ == '__main__':
+    # ব্যাকগ্রাউন্ড থ্রেডে সেলф-পিং স্টার্ট করা
+    ping_thread = Thread(target=self_ping)
+    ping_thread.daemon = True
+    ping_thread.start()
+
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
-
-                
+            
