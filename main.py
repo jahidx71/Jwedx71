@@ -91,7 +91,7 @@ def restore_all_scripts():
 with app.app_context():
     restore_all_scripts()
 
-# --- মোবাইল ফ্রেন্ডলি ইন্টারফেস ---
+# --- গ্লোবাল মোবাইল ফ্রেন্ডলি ইন্টারফেস (সবার জন্য দৃশ্যমান) ---
 INTERFACE_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -171,7 +171,7 @@ INTERFACE_HTML = """
 
         <div class="card">
             <h2>Your Active Scripts</h2>
-            <div id="localFilesList"></div>
+            <div id="localFilesList">⚡ Syncing global scripts...</div>
         </div>
         
         <div style="text-align: center; margin-top: 15px;">
@@ -181,34 +181,26 @@ INTERFACE_HTML = """
     </div>
 
     <script>
-        {% if uploaded_id and uploaded_name %}
-            let currentFiles = JSON.parse(localStorage.getItem('x71_files')) || {};
-            currentFiles["{{ uploaded_id }}"] = "{{ uploaded_name }}";
-            localStorage.setItem('x71_files', JSON.stringify(currentFiles));
-            window.location.href = "/";
-        {% endif %}
-
-        async function loadMobileSavedFiles() {
+        // 🌟 ফায়ারবেস থেকে সরাসরি ডাটা এনে গ্লোবাল লিস্ট তৈরি করার মেথড (সবাই দেখতে পাবে)
+        async function loadGlobalScripts() {
             const listContainer = document.getElementById('localFilesList');
             if (!listContainer) return;
 
-            let savedFiles = JSON.parse(localStorage.getItem('x71_files')) || {};
-            let keys = Object.keys(savedFiles);
-
-            if (keys.length === 0) {
-                listContainer.innerHTML = '<p style="text-align: center; color: #64748b; font-size: 13px; padding: 10px;">No script.</p>';
-                return;
-            }
-
-            listContainer.innerHTML = '';
-            
             try {
                 let response = await fetch("{{ db_url }}/active_bots.json");
-                let dbData = await response.json() || {};
+                let dbData = await response.json();
 
-                keys.forEach(id => {
-                    let filename = savedFiles[id];
-                    let currentStatus = (dbData[id] && dbData[id].status) ? dbData[id].status : "ON";
+                if (!dbData || Object.keys(dbData).length === 0) {
+                    listContainer.innerHTML = '<p style="text-align: center; color: #64748b; font-size: 13px; padding: 10px;">No script found.</p>';
+                    return;
+                }
+
+                listContainer.innerHTML = '';
+                
+                // ফায়ারবেসের ডাটা লুপ করে সবার স্ক্রিনে লিস্ট রেন্ডার করা হচ্ছে
+                Object.keys(dbData).forEach(id => {
+                    let filename = dbData[id].filename;
+                    let currentStatus = dbData[id].status || "ON";
                     let badgeClass = currentStatus.toLowerCase();
 
                     listContainer.innerHTML += `
@@ -248,14 +240,12 @@ INTERFACE_HTML = """
         }
 
         function triggerDelete(id) {
-            let savedFiles = JSON.parse(localStorage.getItem('x71_files')) || {};
-            delete savedFiles[id];
-            localStorage.setItem('x71_files', JSON.stringify(savedFiles));
             document.getElementById(`wrapper-${id}`).remove();
             window.location.href = `/delete/${id}`;
         }
 
-        document.addEventListener("DOMContentLoaded", loadMobileSavedFiles);
+        // পেজ লোড হলেই লিস্ট লোড হবে গ্লোবালি
+        document.addEventListener("DOMContentLoaded", loadGlobalScripts);
     </script>
 </body>
 </html>
@@ -263,9 +253,7 @@ INTERFACE_HTML = """
 
 @app.route('/')
 def home():
-    uploaded_id = session.pop('uploaded_id', None)
-    uploaded_name = session.pop('uploaded_name', None)
-    return render_template_string(INTERFACE_HTML, uploaded_id=uploaded_id, uploaded_name=uploaded_name, db_url=FIREBASE_DB_URL)
+    return render_template_string(INTERFACE_HTML, db_url=FIREBASE_DB_URL)
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -306,8 +294,6 @@ def upload_file():
     
     execute_bot(target_dir, filename, unique_id)
     
-    session['uploaded_id'] = unique_id
-    session['uploaded_name'] = file.filename
     flash(f"{file.filename} Firebase Storage Connected successfully!", "success")
     return redirect(url_for('home'))
 
@@ -352,4 +338,4 @@ def delete_script(unique_id):
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
-            
+                              
