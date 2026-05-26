@@ -8,7 +8,6 @@ import time
 import base64
 import requests
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session
-from threading import Thread
 
 # --- Flask App Setup ---
 app = Flask('')
@@ -20,10 +19,9 @@ FIREBASE_DB_URL = "https://x71-hosting-panel-default-rtdb.firebaseio.com"
 # রানিং প্রসেস ট্র্যাকিং
 running_processes = {}
 
-# 🛠️ ফাইলকে টেক্সটে কনভার্ট করে ফায়ারবেসে সেভ এবং ব্যাকআপ থেকে রান করার মেকানিজম
+# 🛠️ ফাইল এক্সিকিউশন মেকানিজম
 def execute_bot(target_dir, filename, unique_id):
     try:
-        # প্রসেস অলরেডি চললে আগে বন্ধ করি
         stop_bot_process(unique_id)
         
         file_path = os.path.join(target_dir, filename)
@@ -63,7 +61,7 @@ def stop_bot_process(unique_id):
                 pass
         del running_processes[unique_id]
 
-# 🔄 রেন্ডার রিসেট হলে ফায়ারবেস ডাটাবেজ থেকে টেক্সট এনে আবার ফাইল বানিয়ে অটো-রিস্টার্ট
+# 🔄 ফায়ারবেস ডাটাবেজ থেকে রিস্টার্ট করার ফাংশন
 def restore_all_scripts():
     print("🔄 Syncing and restoring scripts directly from Firebase Free DB...")
     try:
@@ -72,7 +70,7 @@ def restore_all_scripts():
             bots = res.json()
             for unique_id, info in bots.items():
                 status = info.get("status", "ON")
-                if status == "ON":  # শুধুমাত্র যেগুলো ON করা ছিল
+                if status == "ON":
                     filename = info.get("filename")
                     file_data_b64 = info.get("file_data")
                     
@@ -81,7 +79,6 @@ def restore_all_scripts():
                         os.makedirs(target_dir, exist_ok=True)
                         file_path = os.path.join(target_dir, filename)
                         
-                        # টেক্সট কোড থেকে আবার ফাইল তৈরি করা হচ্ছে
                         with open(file_path, "wb") as f:
                             f.write(base64.b64decode(file_data_b64.encode('utf-8')))
                         
@@ -89,6 +86,10 @@ def restore_all_scripts():
                         print(f"✅ Auto Restored & Started: {filename}")
     except Exception as e:
         print(f"❌ Restore failed: {str(e)}")
+
+# অ্যাপ স্টার্ট হওয়ার সময় স্ক্রিপ্টগুলো রিস্টার্ট হবে
+with app.app_context():
+    restore_all_scripts()
 
 # --- মোবাইল ফ্রেন্ডলি ইন্টারফেস ---
 INTERFACE_HTML = """
@@ -296,12 +297,10 @@ def upload_file():
     file_path = os.path.join(target_dir, filename)
     file.save(file_path)
     
-    # 🌟 ফাইলকে টেক্সটে কনভার্ট করার ট্রিক (Base64)
     with open(file_path, "rb") as f:
         file_bytes = f.read()
     file_b64_string = base64.b64encode(file_bytes).decode('utf-8')
 
-    # 🌟 সরাসরি ফায়ারবেস ফ্রি ডাটাবেজে ফাইল পুশ
     db_data = {"filename": filename, "file_data": file_b64_string, "status": "ON"}
     requests.put(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json", json=db_data)
     
@@ -346,20 +345,11 @@ def delete_script(unique_id):
     if os.path.exists(target_dir):
         shutil.rmtree(target_dir)
 
-    # ফায়ারবেস ডাটাবেজ থেকে এক ক্লিকে সম্পূর্ণ ক্লিন
     requests.delete(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json")
     flash("Script permanently deleted.", "success")
     return redirect(url_for('home'))
 
-def run_flask():
+if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
-
-if __name__ == '__main__':
-    restore_all_scripts()
-    t = Thread(target=run_flask)
-    t.daemon = True
-    t.start()
-    while True:
-        time.sleep(3600)
-                
+            
