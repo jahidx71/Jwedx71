@@ -171,7 +171,7 @@ INTERFACE_HTML = """
 
         <div class="card">
             <h2>Your Active Scripts</h2>
-            <div id="localFilesList">⚡ Syncing global scripts...</div>
+            <div id="localFilesList">⚡ Looding scripts...</div>
         </div>
         
         <div style="text-align: center; margin-top: 15px;">
