@@ -7,6 +7,7 @@ import shutil
 import time
 import base64
 import requests
+import threading
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session
 
 # --- Flask App Setup ---
@@ -19,7 +20,7 @@ FIREBASE_DB_URL = "https://x71-hosting-panel-default-rtdb.firebaseio.com"
 # রানিং প্রসেস ট্র্যাকিং
 running_processes = {}
 
-# 🛠️ ইউনিভার্সাল ফাইল এক্সিকিউশন মেকানিজম (যেকোনো ফাইল রান করার জন্য আপগ্রেডেড)
+# 🛠️ ইউনিভার্সাল ফাইল এক্সিকিউশন মেকানিজম
 def execute_bot(target_dir, filename, unique_id):
     try:
         stop_bot_process(unique_id)
@@ -77,7 +78,7 @@ def stop_bot_process(unique_id):
                 pass
         del running_processes[unique_id]
 
-# 🔄 ফায়ারবেস ক্লাউড থেকে সব স্ক্রিপ্ট একসাথে সিঙ্ক করার গ্লোবাল মেথড
+# 🔄 ফায়ারবেস ক্লাউড থেকে সব স্ক্রিপ্ট একসাথে সিঙ্ক করার গলোবাল মেথড
 def restore_all_scripts():
     print("⚡ Syncing & Core Booting all premium environments from Firebase...")
     try:
@@ -119,7 +120,6 @@ INTERFACE_HTML = """
         * { box-sizing: border-box; margin: 0; padding: 0; transition: all 0.3s ease; }
         body { font-family: 'Poppins', 'Segoe UI', sans-serif; background: #090d16; color: #e2e8f0; padding: 15px; overflow-x: hidden; }
         
-        /* গ্লোবাল সাইবারপাঙ্ক গ্লো ইফেক্ট */
         body::before {
             content: ''; position: fixed; top: -10%; left: -10%; width: 50%; height: 50%;
             background: radial-gradient(circle, rgba(37, 99, 235, 0.15) 0%, transparent 80%); z-index: -1;
@@ -149,7 +149,6 @@ INTERFACE_HTML = """
         .form-group i.lock-icon { position: absolute; left: 15px; top: 16px; color: #64748b; }
         .form-group input[type="password"]:focus { border-color: #3b82f6; box-shadow: 0 0 10px rgba(59,130,246,0.3); outline: none; }
         
-        /* কাস্টম ফাইল আপলোডার ডিজাইন */
         .file-upload-wrapper { position: relative; width: 100%; height: 60px; background: #0f172a; border: 2px dashed #334155; border-radius: 12px; display: flex; justify-content: center; align-items: center; cursor: pointer; }
         .file-upload-wrapper:hover { border-color: #3b82f6; background: rgba(59,130,246,0.05); }
         .file-upload-wrapper input[type="file"] { position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
@@ -158,7 +157,6 @@ INTERFACE_HTML = """
         .btn { display: flex; justify-content: center; align-items: center; gap: 8px; width: 100%; padding: 14px; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff; border: none; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none; box-shadow: 0 4px 12px rgba(37,99,235,0.3); }
         .btn:hover { background: linear-gradient(135deg, #1d4ed8, #1e40af); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(37,99,235,0.4); }
         
-        /* আল্ট্রা প্রিমিয়াম স্ক্রিপ্ট ম্যানেজার লিস্ট উইজেট */
         .script-wrapper { background: #0f172a; border: 1px solid rgba(255,255,255,0.05); border-radius: 14px; margin-bottom: 14px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
         .script-wrapper:hover { border-color: rgba(59,130,246,0.3); transform: scale(1.01); }
         .script-item { padding: 16px; display: flex; justify-content: space-between; align-items: center; }
@@ -169,20 +167,17 @@ INTERFACE_HTML = """
         
         .actions-area { display: flex; align-items: center; gap: 10px; }
         
-        /* মডার্ন টগল বাটন সিস্টেম (ON/OFF একক ইন্টারফেস) */
         .smart-toggle { position: relative; width: 75px; height: 32px; background: #334155; border-radius: 20px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.4); }
         .smart-toggle .toggle-knob { position: absolute; left: 3px; width: 26px; height: 26px; background: #fff; border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
         .smart-toggle span { font-size: 10px; font-weight: 800; letter-spacing: 0.5px; }
         .smart-toggle .text-on { color: #4ade80; opacity: 0; }
         .smart-toggle .text-off { color: #94a3b8; margin-left: auto; }
         
-        /* একটিভ বাটন মোড */
         .smart-toggle.active { background: linear-gradient(135deg, #059669, #10b981); box-shadow: 0 0 10px rgba(16,185,129,0.4); }
         .smart-toggle.active .toggle-knob { left: 46px; }
         .smart-toggle.active .text-on { opacity: 1; }
         .smart-toggle.active .text-off { opacity: 0; }
         
-        /* প্রিমিয়াম ট্র্যাশ বোতাম */
         .btn-trash { width: 32px; height: 32px; background: rgba(244,63,94,0.1); border: 1px solid rgba(244,63,94,0.2); border-radius: 8px; display: flex; justify-content: center; align-items: center; color: #f43f5e; cursor: pointer; }
         .btn-trash:hover { background: #f43f5e; color: #fff; box-shadow: 0 0 10px rgba(244,63,94,0.4); }
     </style>
@@ -240,7 +235,6 @@ INTERFACE_HTML = """
     </div>
 
     <script>
-        // ফাইল সিলেক্ট করার পর নাম শো করার মডার্ন ট্রিক
         const fileInput = document.getElementById('fileInput');
         if(fileInput) {
             fileInput.addEventListener('change', function() {
@@ -251,7 +245,6 @@ INTERFACE_HTML = """
             });
         }
 
-        // ফায়ারবেস রিয়েল-টাইম ইন্টিগ্রেশন এবং মডার্ন UI মডিউলার জেনারেটর
         async function loadGlobalScripts() {
             const listContainer = document.getElementById('localFilesList');
             if (!listContainer) return;
@@ -272,7 +265,6 @@ INTERFACE_HTML = """
                     let currentStatus = dbData[id].status || "ON";
                     let isChecked = currentStatus === "ON" ? "active" : "";
                     
-                    // এক্সটেনশন ভিত্তিক আইকন মেকার ট্রিক
                     let iconClass = "fa-file-code";
                     if(filename.endsWith('.py')) iconClass = "fab fa-python";
                     else if(filename.endsWith('.js')) iconClass = "fab fa-node-js";
@@ -309,7 +301,6 @@ INTERFACE_HTML = """
             }
         }
 
-        // একক সুইচের মাধ্যমে রিয়েল-টাইম ওয়ান-ক্লিক এক্সিকিউশন কন্ট্রোল
         async function handleToggle(id) {
             let toggleEl = document.getElementById(`toggle-${id}`);
             let targetAction = "";
@@ -322,7 +313,6 @@ INTERFACE_HTML = """
                 targetAction = "ON";
             }
             
-            // ব্যাকগ্রাউন্ড থ্রেড সার্ভারে স্টেট পুশ করা হচ্ছে
             await fetch(`/status/${id}/${targetAction}`);
         }
 
@@ -345,7 +335,6 @@ def home():
 
 @app.route('/login', methods=['POST'])
 def login():
-    # আপনার রিকুয়েস্টেড নতুন প্রিমিয়াম পাসওয়ার্ড ভ্যালিডেশন
     if request.form.get('password') == "@Xhunterx71jb":
         session['logged_in'] = True
     else:
@@ -393,4 +382,20 @@ def change_bot_status(unique_id, action):
     res = requests.get(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json")
     if res.status_code == 200 and res.json():
         db_data = res.json()
-        db_data["status"] = actio
+        db_data["status"] = action
+        requests.put(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json", json=db_data)
+        
+        filename = db_data.get("filename")
+        target_dir = os.path.join(os.getcwd(), "hosted_bots", unique_id)
+        
+        if action == "OFF":
+            stop_bot_process(unique_id)
+        elif action == "ON":
+            file_path = os.path.join(target_dir, filename)
+            if not os.path.exists(file_path):
+                os.makedirs(target_dir, exist_ok=True)
+                with open(file_path, "wb") as f:
+                    f.write(base64.b64decode(db_data.get("file_data").encode('utf-8')))
+            execute_bot(target_dir, filename, unique_id)
+            
+ 
