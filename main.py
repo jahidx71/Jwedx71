@@ -20,63 +20,67 @@ FIREBASE_DB_URL = "https://x71-hosting-panel-default-rtdb.firebaseio.com"
 # রানিং প্রসেস ট্র্যাকিং
 running_processes = {}
 
-# 🛠️ ইউনিভার্সাল ফাইল এক্সিকিউশন মেকানিজম
+# 🛠️ ইউনিভার্সাল ফাইল এক্সিকিউশন মেকানিজম (সুরক্ষিত ও ক্র্যাশ-প্রুফ)
 def execute_bot(target_dir, filename, unique_id):
-    try:
-        stop_bot_process(unique_id)
-        
-        file_path = os.path.join(target_dir, filename)
-        
-        # জিপ ফাইল এক্সট্রাক্ট এবং ডিপেন্ডেন্সি অটো-ইনস্টল মেথড
-        if filename.endswith('.zip'):
-            if not os.path.exists(os.path.join(target_dir, "requirements.txt")) and not os.path.exists(os.path.join(target_dir, "package.json")):
-                with zipfile.ZipFile(file_path, 'r') as zip_ref:
-                    zip_ref.extractall(target_dir)
+    # ভেতরের কোনো বটের ভুলের কারণে যেন মেইন প্যানেল ক্র্যাশ না করে, তাই সম্পূর্ণ আলাদা থ্রেডে রান করানো হচ্ছে
+    def run_target():
+        try:
+            stop_bot_process(unique_id)
+            file_path = os.path.join(target_dir, filename)
             
-            # পাইথন ডিপেন্ডেন্সি চেক
-            if os.path.exists(os.path.join(target_dir, "requirements.txt")):
-                subprocess.Popen([sys.executable, "-m", "pip", "install", "-r", os.path.join(target_dir, "requirements.txt")])
-            
-            # নোড ডিপেন্ডেন্সি চেক
-            if os.path.exists(os.path.join(target_dir, "package.json")):
-                subprocess.Popen(["npm", "install"], cwd=target_dir)
-            
-            # অটো-ডিটেক্ট মেইন এন্ট্রি ফাইল
-            all_files = os.listdir(target_dir)
-            for f in ["main.py", "bot.py", "index.js", "app.js", "start.sh", "run.py"]:
-                if f in all_files:
-                    filename = f
-                    break
-            full_run_path = os.path.join(target_dir, filename)
-        else:
-            full_run_path = file_path
+            # জিপ ফাইল এক্সট্রাক্ট এবং ডিপেন্ডেন্সি অটো-ইনস্টল মেথড
+            if filename.endswith('.zip'):
+                if not os.path.exists(os.path.join(target_dir, "requirements.txt")) and not os.path.exists(os.path.join(target_dir, "package.json")):
+                    with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                        zip_ref.extractall(target_dir)
+                
+                if os.path.exists(os.path.join(target_dir, "requirements.txt")):
+                    subprocess.run([sys.executable, "-m", "pip", "install", "-r", os.path.join(target_dir, "requirements.txt")])
+                
+                if os.path.exists(os.path.join(target_dir, "package.json")):
+                    subprocess.run(["npm", "install"], cwd=target_dir)
+                
+                all_files = os.listdir(target_dir)
+                for f in ["main.py", "bot.py", "index.js", "app.js", "start.sh", "run.py"]:
+                    if f in all_files:
+                        filename_env = f
+                        break
+                full_run_path = os.path.join(target_dir, filename_env)
+            else:
+                full_run_path = file_path
+                filename_env = filename
 
-        # মাল্টি-ল্যাঙ্গুয়েজ এবং যেকোনো এক্সটেনশন এক্সিকিউটর ইঞ্জেকশন
-        if filename.endswith('.py'):
-            proc = subprocess.Popen([sys.executable, full_run_path], cwd=target_dir)
-        elif filename.endswith('.js'):
-            proc = subprocess.Popen(["node", full_run_path], cwd=target_dir)
-        elif filename.endswith('.sh') or filename.endswith('.bash'):
-            proc = subprocess.Popen(["bash", full_run_path], cwd=target_dir)
-        else:
-            # যেকোনো আনকমন বা বাইনারি ফাইলের জন্য ডিরেক্ট সেল এক্সিকিউশন ব্যাকআপ
-            proc = subprocess.Popen([full_run_path], cwd=target_dir, shell=True)
-            
-        running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename}
-    except Exception as e:
-        print(f"❌ Error executing runtime for {unique_id}: {str(e)}")
+            # এনভায়রনমেন্টাল এক্সিকিউশন
+            if filename_env.endswith('.py'):
+                proc = subprocess.Popen([sys.executable, full_run_path], cwd=target_dir)
+            elif filename_env.endswith('.js'):
+                proc = subprocess.Popen(["node", full_run_path], cwd=target_dir)
+            elif filename_env.endswith('.sh') or filename_env.endswith('.bash'):
+                proc = subprocess.Popen(["bash", full_run_path], cwd=target_dir)
+            else:
+                proc = subprocess.Popen([full_run_path], cwd=target_dir, shell=True)
+                
+            running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename_env}
+        except Exception as bot_err:
+            # কোনো বট স্ক্রিপ্টে মডিউল বা কোড এরর থাকলে তা এখানে আটকে যাবে, মেইন সার্ভার সেভ থাকবে
+            print(f"⚠️ [Bot Error] Failed to run script {filename}: {str(bot_err)}")
+
+    # থ্রেড ট্রিগার
+    bot_thread = threading.Thread(target=run_target)
+    bot_thread.daemon = True
+    bot_thread.start()
 
 def stop_bot_process(unique_id):
     if unique_id in running_processes:
         try:
             running_processes[unique_id]["process"].terminate()
-            running_processes[unique_id]["process"].wait(timeout=2)
+            running_processes[unique_id]["process"].wait(timeout=1)
         except:
             try:
                 running_processes[unique_id]["process"].kill()
             except:
                 pass
-        del running_processes[unique_id]
+        running_processes.pop(unique_id, None)
 
 # 🔄 ফায়ারবেস ক্লাউড থেকে সব স্ক্রিপ্ট একসাথে সিঙ্ক করার গলোবাল মেথড
 def restore_all_scripts():
@@ -390,12 +394,4 @@ def change_bot_status(unique_id, action):
         
         if action == "OFF":
             stop_bot_process(unique_id)
-        elif action == "ON":
-            file_path = os.path.join(target_dir, filename)
-            if not os.path.exists(file_path):
-                os.makedirs(target_dir, exist_ok=True)
-                with open(file_path, "wb") as f:
-                    f.write(base64.b64decode(db_data.get("file_data").encode('utf-8')))
-            execute_bot(target_dir, filename, unique_id)
-            
- 
+        elif acti
