@@ -19,7 +19,7 @@ FIREBASE_DB_URL = "https://x71-hosting-panel-default-rtdb.firebaseio.com"
 # রানিং প্রসেস ট্র্যাকিং ডিকশনারি
 running_processes = {}
 
-# 🛠️ বুলেটপ্রুফ ফাইল এক্সিকিউশন মেকানিজম (যেকোনো স্ক্রিপ্ট আইসোলেটেড রান করবে)
+# 🛠️ সুরক্ষিত ফাইল এক্সিকিউশন মেকানিজম (যেকোনো স্ক্রিপ্ট আইসোলেটেড রান করবে)
 def execute_bot(target_dir, filename, unique_id):
     try:
         stop_bot_process(unique_id)
@@ -44,7 +44,7 @@ def execute_bot(target_dir, filename, unique_id):
         else:
             full_run_path = file_path
 
-        # stdout ও stderr কে DEVNULL এ পাঠিয়ে প্রসেস সম্পূর্ণ আলাদা করা হলো যেন মেইন অ্যাপ ক্র্যাশ না করে
+        # stdout ও stderr কে DEVNULL এ পাঠিয়ে প্রসেস সম্পূর্ণ আলাদা করা হলো যেন মেইন অ্যাপ কখনো ক্র্যাশ না করে
         if executable_filename.endswith('.py'):
             proc = subprocess.Popen([sys.executable, full_run_path], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename}
@@ -97,7 +97,7 @@ def restore_all_scripts():
 with app.app_context():
     restore_all_scripts()
 
-# --- আপনার অরিজিনাল ইন্টারফেস (On/Off একটি বাটনে রুপান্তরিত) ---
+# --- আপনার অরিজিনাল ইন্টারফেস (On/Off একটি ডাইনামিক বাটনে ফিক্সড) ---
 INTERFACE_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -133,9 +133,8 @@ INTERFACE_HTML = """
         .control-panel { display: flex; background: #1e293b; padding: 10px; border-top: 1px solid #334155; justify-content: space-around; gap: 8px; }
         .control-btn { flex: 1; padding: 8px; border: none; border-radius: 6px; font-size: 12px; font-weight: bold; cursor: pointer; text-align: center; color: white; text-decoration: none; }
         
-        /* ডাইনামিক অন অফ বাটনের কালার সিলেকশন */
-        .state-active { background: #ea580c; } /* অন থাকলে অফ করার বাটন (কমলা/লালচে) */
-        .state-inactive { background: #16a34a; } /* অফ থাকলে অন করার বাটন (সবুজ) */
+        .state-active { background: #ea580c; } /* চালু থাকলে বাটনে লাল/কমলা OFF দেখাবে */
+        .state-inactive { background: #16a34a; } /* বন্ধ থাকলে বাটনে সবুজ ON দেখাবে */
         .btn-delete { background: #dc2626; }
     </style>
 </head>
@@ -210,7 +209,6 @@ INTERFACE_HTML = """
                     let currentStatus = dbData[id].status || "ON";
                     let badgeClass = currentStatus.toLowerCase();
                     
-                    // অন থাকলে বাটনে লেখা আসবে OFF, আর অফ থাকলে লেখা আসবে ON
                     let toggleBtnText = (currentStatus === "ON") ? "OFF" : "ON";
                     let toggleBtnClass = (currentStatus === "ON") ? "state-active" : "state-inactive";
 
@@ -245,7 +243,6 @@ INTERFACE_HTML = """
             let currentAction = badge.innerText;
             let nextAction = (currentAction === "ON") ? "OFF" : "ON";
             
-            // ইনস্ট্যান্ট ইউজার ইন্টারফেস আপডেট
             badge.innerText = nextAction;
             badge.className = `badge-status ${nextAction.toLowerCase()}`;
             
@@ -305,6 +302,7 @@ def upload_file():
         file_bytes = f.read()
     file_b64_string = base64.b64encode(file_bytes).decode('utf-8')
 
+    # এখানে ভ্যারিয়েবল ১০০% মিলিয়ে 'filename' করা হয়েছে
     db_data = {"filename": filename, "file_data": file_b64_string, "status": "ON"}
     
     try:
