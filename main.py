@@ -19,31 +19,36 @@ FIREBASE_DB_URL = "https://x71-hosting-panel-default-rtdb.firebaseio.com"
 # রানিং প্রসেস ট্র্যাকিং
 running_processes = {}
 
-# 🛠️ ফাইল এক্সিকিউশন মেকানিজম
+# 🛠️ ফাইল এক্সিকিউশন মেকানিজম (সুরক্ষিত ও ফিক্সড লজিক)
 def execute_bot(target_dir, filename, unique_id):
     try:
         stop_bot_process(unique_id)
         
         file_path = os.path.join(target_dir, filename)
-        if filename.endswith('.zip') and not os.path.exists(os.path.join(target_dir, "requirements.txt")):
+        executable_filename = filename # জিপের ভেতরের ফাইল ট্র্যাক করার জন্য আলাদা ভ্যারিয়েবল
+        
+        if filename.endswith('.zip'):
+            # জিপ ফাইল এক্সট্রাক্ট করার লজিক
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(target_dir)
+            
             if os.path.exists(os.path.join(target_dir, "requirements.txt")):
                 subprocess.Popen([sys.executable, "-m", "pip", "install", "-r", os.path.join(target_dir, "requirements.txt")])
             
             all_files = os.listdir(target_dir)
             for f in ["main.py", "bot.py", "index.js", "app.js"]:
                 if f in all_files:
-                    filename = f
+                    executable_filename = f
                     break
-            full_run_path = os.path.join(target_dir, filename)
+            full_run_path = os.path.join(target_dir, executable_filename)
         else:
             full_run_path = file_path
 
-        if filename.endswith('.py'):
+        # পারফেক্ট কন্ডিশনাল রান মেকানিজম
+        if executable_filename.endswith('.py'):
             proc = subprocess.Popen([sys.executable, full_run_path], cwd=target_dir)
             running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename}
-        elif filename.endswith('.js'):
+        elif executable_filename.endswith('.js'):
             proc = subprocess.Popen(["node", full_run_path], cwd=target_dir)
             running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename}
     except Exception as e:
@@ -91,7 +96,7 @@ def restore_all_scripts():
 with app.app_context():
     restore_all_scripts()
 
-# --- গ্লোবাল মোবাইল ফ্রেন্ডলি ইন্টারফেস (সবার জন্য দৃশ্যমান) ---
+# --- গ্লোবাল মোবাইল ফ্রেন্ডলি ইন্টারফেস (হুবহু আপনার আগের ডিজাইন) ---
 INTERFACE_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -171,7 +176,7 @@ INTERFACE_HTML = """
 
         <div class="card">
             <h2>Your Active Scripts</h2>
-            <div id="localFilesList">⚡ Looding scripts...</div>
+            <div id="localFilesList">⚡ Loading scripts...</div>
         </div>
         
         <div style="text-align: center; margin-top: 15px;">
@@ -181,7 +186,6 @@ INTERFACE_HTML = """
     </div>
 
     <script>
-        // 🌟 ফায়ারবেস থেকে সরাসরি ডাটা এনে গ্লোবাল লিস্ট তৈরি করার মেথড (সবাই দেখতে পাবে)
         async function loadGlobalScripts() {
             const listContainer = document.getElementById('localFilesList');
             if (!listContainer) return;
@@ -197,9 +201,8 @@ INTERFACE_HTML = """
 
                 listContainer.innerHTML = '';
                 
-                // ফায়ারবেসের ডাটা লুপ করে সবার স্ক্রিনে লিস্ট রেন্ডার করা হচ্ছে
                 Object.keys(dbData).forEach(id => {
-                    let filename = dbData[id].filename;
+                    let filename = dbData[id].filename || "Unknown File";
                     let currentStatus = dbData[id].status || "ON";
                     let badgeClass = currentStatus.toLowerCase();
 
@@ -244,7 +247,6 @@ INTERFACE_HTML = """
             window.location.href = `/delete/${id}`;
         }
 
-        // পেজ লোড হলেই লিস্ট লোড হবে গ্লোবালি
         document.addEventListener("DOMContentLoaded", loadGlobalScripts);
     </script>
 </body>
@@ -338,4 +340,3 @@ def delete_script(unique_id):
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
-
