@@ -16,61 +16,67 @@ app.secret_key = "x71_secret_key_secure_local"
 # --- আপনার ফায়ারবেস কনফিগারেশন ---
 FIREBASE_DB_URL = "https://x71-hosting-panel-default-rtdb.firebaseio.com" 
 
-# রানিং প্রসেস ট্র্যাকিং
+# রানিং প্রসেস ট্র্যাকিং ডিকশনারি
 running_processes = {}
 
-# 🛠️ ফাইল এক্সিকিউশন মেকানিজম (আপনার অরিজিনাল লজিক)
+# 🛠️ বুলেটপ্রুফ ফাইল এক্সিকিউশন মেকানিজম (যেকোনো স্ক্রিপ্ট আইসোলেটেড রান করবে)
 def execute_bot(target_dir, filename, unique_id):
     try:
         stop_bot_process(unique_id)
         
         file_path = os.path.join(target_dir, filename)
+        executable_filename = filename
         
-        if filename.endswith('.zip') and not os.path.exists(os.path.join(target_dir, "requirements.txt")):
+        if filename.endswith('.zip'):
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(target_dir)
             
             if os.path.exists(os.path.join(target_dir, "requirements.txt")):
+                # মেইন থ্রেডকে ব্লক না করে রিকোয়ারমেন্টস ইনস্টল করা
                 subprocess.Popen([sys.executable, "-m", "pip", "install", "-r", os.path.join(target_dir, "requirements.txt")])
             
             all_files = os.listdir(target_dir)
             for f in ["main.py", "bot.py", "index.js", "app.js"]:
                 if f in all_files:
-                    filename = f
+                    executable_filename = f
                     break
-            full_run_path = os.path.join(target_dir, filename)
+            full_run_path = os.path.join(target_dir, executable_filename)
         else:
             full_run_path = file_path
 
-        if filename.endswith('.py'):
-            proc = subprocess.Popen([sys.executable, full_run_path], cwd=target_dir)
+        # stdout ও stderr কে DEVNULL এ পাঠিয়ে প্রসেস সম্পূর্ণ আলাদা করা হলো যেন মেইন অ্যাপ ক্র্যাশ না করে
+        if executable_filename.endswith('.py'):
+            proc = subprocess.Popen([sys.executable, full_run_path], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename}
-        elif filename.endswith('.js'):
-            proc = subprocess.Popen(["node", full_run_path], cwd=target_dir)
+        elif executable_filename.endswith('.js'):
+            proc = subprocess.Popen(["node", full_run_path], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename}
+            
+        print(f"🚀 Started Script: {filename}")
     except Exception as e:
-        print(f"Error executing bot {unique_id}: {str(e)}")
+        print(f"❌ Error running script {unique_id}: {str(e)}")
 
 def stop_bot_process(unique_id):
     if unique_id in running_processes:
         try:
             running_processes[unique_id]["process"].terminate()
-            running_processes[unique_id]["process"].wait(timeout=2)
+            running_processes[unique_id]["process"].wait(timeout=1)
         except:
             try:
                 running_processes[unique_id]["process"].kill()
             except:
                 pass
-        del running_processes[unique_id]
+        running_processes.pop(unique_id, None)
 
-# 🔄 রিস্টার্টের পর ফায়ারবেস থেকে ফাইল রিস্টোর ও রান করার মেইন লজিক
+# 🔄 রেন্ডার অনলাইন বা রিস্টার্ট হওয়া মাত্রই ফায়ারবেস থেকে সিঙ্ক করার মেকানিজম
 def restore_all_scripts():
-    print("🔄 Syncing and restoring scripts directly from Firebase DB...")
+    print("🔄 Booting & Restoring Active Scripts from Firebase...")
     try:
-        res = requests.get(f"{FIREBASE_DB_URL}/active_bots.json")
+        res = requests.get(f"{FIREBASE_DB_URL}/active_bots.json", timeout=10)
         if res.status_code == 200 and res.json():
             bots = res.json()
             for unique_id, info in bots.items():
+                if not info or not isinstance(info, dict): continue
                 status = info.get("status", "ON")
                 if status == "ON":
                     filename = info.get("filename")
@@ -81,20 +87,17 @@ def restore_all_scripts():
                         os.makedirs(target_dir, exist_ok=True)
                         file_path = os.path.join(target_dir, filename)
                         
-                        # রেন্ডার রিস্টার্ট নিয়ে ফাইল মুছে দিলেও এখান থেকে আবার তৈরি হবে
                         with open(file_path, "wb") as f:
                             f.write(base64.b64decode(file_data_b64.encode('utf-8')))
                         
                         execute_bot(target_dir, filename, unique_id)
-                        print(f"✅ Auto Restored & Started: {filename}")
     except Exception as e:
-        print(f"❌ Restore failed: {str(e)}")
+        print(f"❌ Auto-Restore Exception: {str(e)}")
 
-# অ্যাপ স্টার্ট বা রিস্টার্ট হওয়ার সাথে সাথে এই ফাংশনটি রান হবে
 with app.app_context():
     restore_all_scripts()
 
-# --- আপনার অরিজিনাল ইন্টারফেস (On/Off দুটি আলাদা বাটনসহ) ---
+# --- আপনার অরিজিনাল ইন্টারফেস (On/Off একটি বাটনে রুপান্তরিত) ---
 INTERFACE_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -119,8 +122,7 @@ INTERFACE_HTML = """
         .btn:hover { background: #1d4ed8; }
         
         .script-wrapper { background: #0f172a; border: 1px solid #334155; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
-        .script-item { padding: 14px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: background 0.2s; }
-        .script-item:hover { background: #1e293b; }
+        .script-item { padding: 14px; display: flex; justify-content: space-between; align-items: center; }
         .script-info h4 { font-size: 14px; color: #f1f5f9; word-break: break-all; }
         .script-info p { font-size: 11px; color: #64748b; margin-top: 2px; }
         
@@ -128,10 +130,12 @@ INTERFACE_HTML = """
         .badge-status.on { background: #16a34a; color: white; }
         .badge-status.off { background: #dc2626; color: white; }
 
-        .control-panel { display: none; background: #1e293b; padding: 10px; border-top: 1px solid #334155; justify-content: space-around; gap: 8px; }
+        .control-panel { display: flex; background: #1e293b; padding: 10px; border-top: 1px solid #334155; justify-content: space-around; gap: 8px; }
         .control-btn { flex: 1; padding: 8px; border: none; border-radius: 6px; font-size: 12px; font-weight: bold; cursor: pointer; text-align: center; color: white; text-decoration: none; }
-        .btn-on { background: #16a34a; }
-        .btn-off { background: #ea580c; }
+        
+        /* ডাইনামিক অন অফ বাটনের কালার সিলেকশন */
+        .state-active { background: #ea580c; } /* অন থাকলে অফ করার বাটন (কমলা/লালচে) */
+        .state-inactive { background: #16a34a; } /* অফ থাকলে অন করার বাটন (সবুজ) */
         .btn-delete { background: #dc2626; }
     </style>
 </head>
@@ -174,7 +178,7 @@ INTERFACE_HTML = """
 
         <div class="card">
             <h2>Your Active Scripts</h2>
-            <div id="localFilesList">⚡ Loading scripts...</div>
+            <div id="localFilesList">⚡ Loading scripts from server...</div>
         </div>
         
         <div style="text-align: center; margin-top: 15px;">
@@ -189,7 +193,7 @@ INTERFACE_HTML = """
             if (!listContainer) return;
 
             try {
-                let response = await fetch("{{ db_url }}/active_bots.json");
+                let response = await fetch("{{ db_url }}/active_bots.json?t=" + new Date().getTime());
                 let dbData = await response.json();
 
                 if (!dbData || Object.keys(dbData).length === 0) {
@@ -200,24 +204,29 @@ INTERFACE_HTML = """
                 listContainer.innerHTML = '';
                 
                 Object.keys(dbData).forEach(id => {
+                    if (!dbData[id] || typeof dbData[id] !== 'object') return;
+                    
                     let filename = dbData[id].filename || "Unknown File";
                     let currentStatus = dbData[id].status || "ON";
                     let badgeClass = currentStatus.toLowerCase();
+                    
+                    // অন থাকলে বাটনে লেখা আসবে OFF, আর অফ থাকলে লেখা আসবে ON
+                    let toggleBtnText = (currentStatus === "ON") ? "OFF" : "ON";
+                    let toggleBtnClass = (currentStatus === "ON") ? "state-active" : "state-inactive";
 
                     listContainer.innerHTML += `
                         <div class="script-wrapper" id="wrapper-${id}">
-                            <div class="script-item" onclick="toggleControlPanel('${id}')">
+                            <div class="script-item">
                                 <div class="script-info">
                                     <h4>${filename}</h4>
-                                    <p>Tap to manage controls</p>
+                                    <p>ID: ${id}</p>
                                 </div>
                                 <div>
                                     <span class="badge-status ${badgeClass}" id="badge-${id}">${currentStatus}</span>
                                 </div>
                             </div>
-                            <div class="control-panel" id="panel-${id}">
-                                <button class="control-btn btn-on" onclick="changeStatus('${id}', 'ON')">ON</button>
-                                <button class="control-btn btn-off" onclick="changeStatus('${id}', 'OFF')">OFF</button>
+                            <div class="control-panel">
+                                <button class="control-btn ${toggleBtnClass}" id="toggle-${id}" onclick="toggleStatus('${id}')">${toggleBtnText}</button>
                                 <button class="control-btn btn-delete" onclick="triggerDelete('${id}')">DELETE</button>
                             </div>
                         </div>
@@ -228,20 +237,27 @@ INTERFACE_HTML = """
             }
         }
 
-        function toggleControlPanel(id) {
-            let panel = document.getElementById(`panel-${id}`);
-            panel.style.display = (panel.style.display === "flex") ? "none" : "flex";
-        }
-
-        async function changeStatus(id, action) {
+        async function toggleStatus(id) {
             let badge = document.getElementById(`badge-${id}`);
-            badge.innerText = action;
-            badge.className = `badge-status ${action.toLowerCase()}`;
-            await fetch(`/status/${id}/${action}`);
+            let btn = document.getElementById(`toggle-${id}`);
+            if(!badge || !btn) return;
+            
+            let currentAction = badge.innerText;
+            let nextAction = (currentAction === "ON") ? "OFF" : "ON";
+            
+            // ইনস্ট্যান্ট ইউজার ইন্টারফেস আপডেট
+            badge.innerText = nextAction;
+            badge.className = `badge-status ${nextAction.toLowerCase()}`;
+            
+            btn.innerText = (nextAction === "ON") ? "OFF" : "ON";
+            btn.className = `control-btn ${(nextAction === "ON") ? "state-active" : "state-inactive"}`;
+            
+            await fetch(`/status/${id}/${nextAction}`);
         }
 
-        function triggerDelete(id) {
-            document.getElementById(`wrapper-${id}`).remove();
+        async function triggerDelete(id) {
+            let elem = document.getElementById(`wrapper-${id}`);
+            if(elem) elem.remove();
             window.location.href = `/delete/${id}`;
         }
 
@@ -290,35 +306,41 @@ def upload_file():
     file_b64_string = base64.b64encode(file_bytes).decode('utf-8')
 
     db_data = {"filename": filename, "file_data": file_b64_string, "status": "ON"}
-    requests.put(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json", json=db_data)
     
-    execute_bot(target_dir, filename, unique_id)
-    
-    flash(f"{file.filename} Firebase Storage Connected successfully!", "success")
+    try:
+        requests.put(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json", json=db_data, timeout=10)
+        execute_bot(target_dir, filename, unique_id)
+        flash(f"{filename} Uploaded & Executed Successfully!", "success")
+    except Exception as e:
+        flash(f"Uploaded but DB Sync Failed: {str(e)}", "error")
+        
     return redirect(url_for('home'))
 
 @app.route('/status/<unique_id>/<action>')
 def change_bot_status(unique_id, action):
     if not session.get('logged_in'): return "Unauthorized", 401
         
-    res = requests.get(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json")
-    if res.status_code == 200 and res.json():
-        db_data = res.json()
-        db_data["status"] = action
-        requests.put(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json", json=db_data)
-        
-        filename = db_data.get("filename")
-        target_dir = os.path.join(os.getcwd(), "hosted_bots", unique_id)
-        
-        if action == "OFF":
-            stop_bot_process(unique_id)
-        elif action == "ON":
-            file_path = os.path.join(target_dir, filename)
-            if not os.path.exists(file_path):
-                os.makedirs(target_dir, exist_ok=True)
-                with open(file_path, "wb") as f:
-                    f.write(base64.b64decode(db_data.get("file_data").encode('utf-8')))
-            execute_bot(target_dir, filename, unique_id)
+    try:
+        res = requests.get(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json", timeout=10)
+        if res.status_code == 200 and res.json():
+            db_data = res.json()
+            db_data["status"] = action
+            requests.put(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json", json=db_data, timeout=10)
+            
+            filename = db_data.get("filename")
+            target_dir = os.path.join(os.getcwd(), "hosted_bots", unique_id)
+            
+            if action == "OFF":
+                stop_bot_process(unique_id)
+            elif action == "ON":
+                file_path = os.path.join(target_dir, filename)
+                if not os.path.exists(file_path):
+                    os.makedirs(target_dir, exist_ok=True)
+                    with open(file_path, "wb") as f:
+                        f.write(base64.b64decode(db_data.get("file_data").encode('utf-8')))
+                execute_bot(target_dir, filename, unique_id)
+    except Exception as e:
+        print(f"Error handling status endpoint: {str(e)}")
             
     return "OK", 200
 
@@ -326,13 +348,17 @@ def change_bot_status(unique_id, action):
 def delete_script(unique_id):
     if not session.get('logged_in'): return redirect(url_for('home'))
         
-    stop_bot_process(unique_id)
-    target_dir = os.path.join(os.getcwd(), "hosted_bots", unique_id)
-    if os.path.exists(target_dir):
-        shutil.rmtree(target_dir)
+    try:
+        stop_bot_process(unique_id)
+        target_dir = os.path.join(os.getcwd(), "hosted_bots", unique_id)
+        if os.path.exists(target_dir):
+            shutil.rmtree(target_dir)
 
-    requests.delete(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json")
-    flash("Script permanently deleted.", "success")
+        requests.delete(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json", timeout=10)
+        flash("Script removed from system permanently.", "success")
+    except Exception as e:
+        flash(f"Delete action exception: {str(e)}", "error")
+        
     return redirect(url_for('home'))
 
 if __name__ == '__main__':
