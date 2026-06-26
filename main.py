@@ -2,10 +2,24 @@
 import os
 import sys
 import subprocess
+
+# --- সার্ভার স্টার্ট হওয়ার সময় প্রয়োজনীয় সব মডিউল অটো-ইনস্টল করার মেকানিজম ---
+def install_essential_packages():
+    essentials = ["flask", "requests", "pyTelegramBotAPI", "python-telegram-bot", "aiohttp"]
+    print("📦 Checking and installing essential packages...")
+    for package in essentials:
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package, "--quiet"])
+        except Exception as e:
+            print(f"⚠️ Could not install {package}: {str(e)}")
+
+install_essential_packages()
+
 import zipfile
 import shutil
 import time
 import base64
+import threading
 import requests
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session
 
@@ -19,11 +33,9 @@ FIREBASE_DB_URL = "https://x71-hosting-panel-default-rtdb.firebaseio.com"
 # রানিং প্রসেস ট্র্যাকিং ডিকশনারি
 running_processes = {}
 
-# 🛠️ সুরক্ষিত ফাইল এক্সিকিউশন মেকানিজম (যেকোনো স্ক্রিপ্ট আইসোলেটেড রান করবে)
-def execute_bot(target_dir, filename, unique_id):
+# 🛠️ সম্পূর্ণ আইসোলেটেড রান মেকানিজম (খারাপ কোড হলেও মেইন সার্ভার ক্র্যাশ করবে না)
+def run_bot_worker(target_dir, filename, unique_id):
     try:
-        stop_bot_process(unique_id)
-        
         file_path = os.path.join(target_dir, filename)
         executable_filename = filename
         
@@ -32,8 +44,7 @@ def execute_bot(target_dir, filename, unique_id):
                 zip_ref.extractall(target_dir)
             
             if os.path.exists(os.path.join(target_dir, "requirements.txt")):
-                # মেইন থ্রেডকে ব্লক না করে রিকোয়ারমেন্টস ইনস্টল করা
-                subprocess.Popen([sys.executable, "-m", "pip", "install", "-r", os.path.join(target_dir, "requirements.txt")])
+                subprocess.run([sys.executable, "-m", "pip", "install", "-r", os.path.join(target_dir, "requirements.txt")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             all_files = os.listdir(target_dir)
             for f in ["main.py", "bot.py", "index.js", "app.js"]:
@@ -44,7 +55,7 @@ def execute_bot(target_dir, filename, unique_id):
         else:
             full_run_path = file_path
 
-        # stdout ও stderr কে DEVNULL এ পাঠিয়ে প্রসেস সম্পূর্ণ আলাদা করা হলো যেন মেইন অ্যাপ কখনো ক্র্যাশ না করে
+        # সম্পূর্ণ আলাদা সাব-প্রসেস জেনারেট করা হলো
         if executable_filename.endswith('.py'):
             proc = subprocess.Popen([sys.executable, full_run_path], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename}
@@ -52,9 +63,16 @@ def execute_bot(target_dir, filename, unique_id):
             proc = subprocess.Popen(["node", full_run_path], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename}
             
-        print(f"🚀 Started Script: {filename}")
+        print(f"🚀 Thread Started Process for: {filename}")
     except Exception as e:
-        print(f"❌ Error running script {unique_id}: {str(e)}")
+        print(f"❌ Worker Exception for {unique_id}: {str(e)}")
+
+def execute_bot(target_dir, filename, unique_id):
+    stop_bot_process(unique_id)
+    # মেইন থ্রেডকে ব্লক না করতে ব্যাকগ্রাউন্ড থ্রেডে পাঠানো হলো
+    t = threading.Thread(target=run_bot_worker, args=(target_dir, filename, unique_id))
+    t.daemon = True
+    t.start()
 
 def stop_bot_process(unique_id):
     if unique_id in running_processes:
@@ -68,7 +86,7 @@ def stop_bot_process(unique_id):
                 pass
         running_processes.pop(unique_id, None)
 
-# 🔄 রেন্ডার অনলাইন বা রিস্টার্ট হওয়া মাত্রই ফায়ারবেস থেকে সিঙ্ক করার মেকানিজম
+# 🔄 রিস্টার্ট মেকানিজম
 def restore_all_scripts():
     print("🔄 Booting & Restoring Active Scripts from Firebase...")
     try:
@@ -79,7 +97,7 @@ def restore_all_scripts():
                 if not info or not isinstance(info, dict): continue
                 status = info.get("status", "ON")
                 if status == "ON":
-                    filename = info.get("filename")
+                    filename = info.get("filename") or info.get("file_name")
                     file_data_b64 = info.get("file_data")
                     
                     if filename and file_data_b64:
@@ -97,7 +115,7 @@ def restore_all_scripts():
 with app.app_context():
     restore_all_scripts()
 
-# --- আপনার অরিজিনাল ইন্টারফেস (On/Off একটি ডাইনামিক বাটনে ফিক্সড) ---
+# --- আপনার ইন্টারফেস (১টি অন/অফ বাটন মেকানিজম) ---
 INTERFACE_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -133,8 +151,8 @@ INTERFACE_HTML = """
         .control-panel { display: flex; background: #1e293b; padding: 10px; border-top: 1px solid #334155; justify-content: space-around; gap: 8px; }
         .control-btn { flex: 1; padding: 8px; border: none; border-radius: 6px; font-size: 12px; font-weight: bold; cursor: pointer; text-align: center; color: white; text-decoration: none; }
         
-        .state-active { background: #ea580c; } /* চালু থাকলে বাটনে লাল/কমলা OFF দেখাবে */
-        .state-inactive { background: #16a34a; } /* বন্ধ থাকলে বাটনে সবুজ ON দেখাবে */
+        .state-active { background: #ea580c; }
+        .state-inactive { background: #16a34a; }
         .btn-delete { background: #dc2626; }
     </style>
 </head>
@@ -167,7 +185,7 @@ INTERFACE_HTML = """
 
         <div class="card">
             <h2>Upload Script (ZIP, PY, JS)</h2>
-            <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data">
+            <form action="/upload" method="POST" enctype="multipart/form-data">
                 <div class="form-group">
                     <input type="file" name="bot_file" accept=".py,.js,.zip" required>
                 </div>
@@ -205,7 +223,7 @@ INTERFACE_HTML = """
                 Object.keys(dbData).forEach(id => {
                     if (!dbData[id] || typeof dbData[id] !== 'object') return;
                     
-                    let filename = dbData[id].filename || "Unknown File";
+                    let filename = dbData[id].filename || dbData[id].file_name || "Unknown File";
                     let currentStatus = dbData[id].status || "ON";
                     let badgeClass = currentStatus.toLowerCase();
                     
@@ -302,13 +320,12 @@ def upload_file():
         file_bytes = f.read()
     file_b64_string = base64.b64encode(file_bytes).decode('utf-8')
 
-    # এখানে ভ্যারিয়েবল ১০০% মিলিয়ে 'filename' করা হয়েছে
     db_data = {"filename": filename, "file_data": file_b64_string, "status": "ON"}
     
     try:
         requests.put(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json", json=db_data, timeout=10)
         execute_bot(target_dir, filename, unique_id)
-        flash(f"{filename} Uploaded & Executed Successfully!", "success")
+        flash(f"{filename} Uploaded & Process Isolation Started!", "success")
     except Exception as e:
         flash(f"Uploaded but DB Sync Failed: {str(e)}", "error")
         
@@ -325,7 +342,7 @@ def change_bot_status(unique_id, action):
             db_data["status"] = action
             requests.put(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json", json=db_data, timeout=10)
             
-            filename = db_data.get("filename")
+            filename = db_data.get("filename") or db_data.get("file_name")
             target_dir = os.path.join(os.getcwd(), "hosted_bots", unique_id)
             
             if action == "OFF":
