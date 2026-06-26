@@ -13,22 +13,20 @@ from flask import Flask, render_template_string, request, redirect, url_for, fla
 app = Flask('')
 app.secret_key = "x71_secret_key_secure_local"
 
-# --- ১০০% ফ্রি ফায়ারবেস কনফিগারেশন ---
+# --- আপনার ফায়ারবেস কনফিগারেশন ---
 FIREBASE_DB_URL = "https://x71-hosting-panel-default-rtdb.firebaseio.com" 
 
 # রানিং প্রসেস ট্র্যাকিং
 running_processes = {}
 
-# 🛠️ ফাইল এক্সিকিউশন মেকানিজম (সুরক্ষিত ও ফিক্সড লজিক)
+# 🛠️ ফাইল এক্সিকিউশন মেকানিজম (আপনার অরিজিনাল লজিক)
 def execute_bot(target_dir, filename, unique_id):
     try:
         stop_bot_process(unique_id)
         
         file_path = os.path.join(target_dir, filename)
-        executable_filename = filename # জিপের ভেতরের ফাইল ট্র্যাক করার জন্য আলাদা ভ্যারিয়েবল
         
-        if filename.endswith('.zip'):
-            # জিপ ফাইল এক্সট্রাক্ট করার লজিক
+        if filename.endswith('.zip') and not os.path.exists(os.path.join(target_dir, "requirements.txt")):
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(target_dir)
             
@@ -38,17 +36,16 @@ def execute_bot(target_dir, filename, unique_id):
             all_files = os.listdir(target_dir)
             for f in ["main.py", "bot.py", "index.js", "app.js"]:
                 if f in all_files:
-                    executable_filename = f
+                    filename = f
                     break
-            full_run_path = os.path.join(target_dir, executable_filename)
+            full_run_path = os.path.join(target_dir, filename)
         else:
             full_run_path = file_path
 
-        # পারফেক্ট কন্ডিশনাল রান মেকানিজম
-        if executable_filename.endswith('.py'):
+        if filename.endswith('.py'):
             proc = subprocess.Popen([sys.executable, full_run_path], cwd=target_dir)
             running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename}
-        elif executable_filename.endswith('.js'):
+        elif filename.endswith('.js'):
             proc = subprocess.Popen(["node", full_run_path], cwd=target_dir)
             running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename}
     except Exception as e:
@@ -66,9 +63,9 @@ def stop_bot_process(unique_id):
                 pass
         del running_processes[unique_id]
 
-# 🔄 ফায়ারবেস ডাটাবেজ থেকে রিস্টার্ট করার ফাংশন
+# 🔄 রিস্টার্টের পর ফায়ারবেস থেকে ফাইল রিস্টোর ও রান করার মেইন লজিক
 def restore_all_scripts():
-    print("🔄 Syncing and restoring scripts directly from Firebase Free DB...")
+    print("🔄 Syncing and restoring scripts directly from Firebase DB...")
     try:
         res = requests.get(f"{FIREBASE_DB_URL}/active_bots.json")
         if res.status_code == 200 and res.json():
@@ -84,6 +81,7 @@ def restore_all_scripts():
                         os.makedirs(target_dir, exist_ok=True)
                         file_path = os.path.join(target_dir, filename)
                         
+                        # রেন্ডার রিস্টার্ট নিয়ে ফাইল মুছে দিলেও এখান থেকে আবার তৈরি হবে
                         with open(file_path, "wb") as f:
                             f.write(base64.b64decode(file_data_b64.encode('utf-8')))
                         
@@ -92,11 +90,11 @@ def restore_all_scripts():
     except Exception as e:
         print(f"❌ Restore failed: {str(e)}")
 
-# অ্যাপ স্টার্ট হওয়ার সময় স্ক্রিপ্টগুলো রিস্টার্ট হবে
+# অ্যাপ স্টার্ট বা রিস্টার্ট হওয়ার সাথে সাথে এই ফাংশনটি রান হবে
 with app.app_context():
     restore_all_scripts()
 
-# --- গ্লোবাল মোবাইল ফ্রেন্ডলি ইন্টারফেস (হুবহু আপনার আগের ডিজাইন) ---
+# --- আপনার অরিজিনাল ইন্টারফেস (On/Off দুটি আলাদা বাটনসহ) ---
 INTERFACE_HTML = """
 <!DOCTYPE html>
 <html lang="en">
