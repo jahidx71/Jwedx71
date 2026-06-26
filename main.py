@@ -3,7 +3,7 @@ import os
 import sys
 import subprocess
 
-# --- সার্ভার স্টার্ট হওয়ার সময় প্রয়োজনীয় সব মডিউল অটো-ইনস্টল করার মেকানিজম ---
+# --- প্যানেল বুট হওয়ার সময় প্রয়োজনীয় সব প্যাকেজ অটো-ইনস্টল মেকানিজম ---
 def install_essential_packages():
     essentials = ["flask", "requests", "pyTelegramBotAPI", "python-telegram-bot", "aiohttp"]
     print("📦 Checking and installing essential packages...")
@@ -23,17 +23,14 @@ import threading
 import requests
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session
 
-# --- Flask App Setup ---
 app = Flask('')
 app.secret_key = "x71_secret_key_secure_local"
 
 # --- আপনার ফায়ারবেস কনফিগারেশন ---
 FIREBASE_DB_URL = "https://x71-hosting-panel-default-rtdb.firebaseio.com" 
 
-# রানিং প্রসেস ট্র্যাকিং ডিকশনারি
 running_processes = {}
 
-# 🛠️ সম্পূর্ণ আইসোলেটেড রান মেকানিজম (খারাপ কোড হলেও মেইন সার্ভার ক্র্যাশ করবে না)
 def run_bot_worker(target_dir, filename, unique_id):
     try:
         file_path = os.path.join(target_dir, filename)
@@ -55,7 +52,6 @@ def run_bot_worker(target_dir, filename, unique_id):
         else:
             full_run_path = file_path
 
-        # সম্পূর্ণ আলাদা সাব-প্রসেস জেনারেট করা হলো
         if executable_filename.endswith('.py'):
             proc = subprocess.Popen([sys.executable, full_run_path], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename}
@@ -69,7 +65,6 @@ def run_bot_worker(target_dir, filename, unique_id):
 
 def execute_bot(target_dir, filename, unique_id):
     stop_bot_process(unique_id)
-    # মেইন থ্রেডকে ব্লক না করতে ব্যাকগ্রাউন্ড থ্রেডে পাঠানো হলো
     t = threading.Thread(target=run_bot_worker, args=(target_dir, filename, unique_id))
     t.daemon = True
     t.start()
@@ -86,7 +81,6 @@ def stop_bot_process(unique_id):
                 pass
         running_processes.pop(unique_id, None)
 
-# 🔄 রিস্টার্ট মেকানিজম
 def restore_all_scripts():
     print("🔄 Booting & Restoring Active Scripts from Firebase...")
     try:
@@ -115,7 +109,7 @@ def restore_all_scripts():
 with app.app_context():
     restore_all_scripts()
 
-# --- আপনার ইন্টারফেস (১টি অন/অফ বাটন মেকানিজম) ---
+# --- সার্ভার-সাইড রেন্ডার করা মোবাইল ফ্রেন্ডলি ইন্টারফেস ---
 INTERFACE_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -126,7 +120,7 @@ INTERFACE_HTML = """
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f172a; color: #f8fafc; padding: 15px; }
-        .container { max-width: 500px; margin: 40px auto; }
+        .container { max-width: 500px; margin: 20px auto; }
         .header { text-align: center; padding: 20px 0; background: linear-gradient(135deg, #1e3a8a, #3b82f6); border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
         .header h1 { font-size: 24px; color: #fff; font-weight: bold; }
         .header p { font-size: 13px; color: #93c5fd; margin-top: 5px; }
@@ -141,7 +135,7 @@ INTERFACE_HTML = """
         
         .script-wrapper { background: #0f172a; border: 1px solid #334155; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
         .script-item { padding: 14px; display: flex; justify-content: space-between; align-items: center; }
-        .script-info h4 { font-size: 14px; color: #f1f5f9; word-break: break-all; }
+        .script-info h4 { font-size: 14px; color: #f1f5f9; word-break: break-all; padding-right: 10px; }
         .script-info p { font-size: 11px; color: #64748b; margin-top: 2px; }
         
         .badge-status { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
@@ -149,7 +143,7 @@ INTERFACE_HTML = """
         .badge-status.off { background: #dc2626; color: white; }
 
         .control-panel { display: flex; background: #1e293b; padding: 10px; border-top: 1px solid #334155; justify-content: space-around; gap: 8px; }
-        .control-btn { flex: 1; padding: 8px; border: none; border-radius: 6px; font-size: 12px; font-weight: bold; cursor: pointer; text-align: center; color: white; text-decoration: none; }
+        .control-btn { flex: 1; padding: 10px; border: none; border-radius: 6px; font-size: 12px; font-weight: bold; cursor: pointer; text-align: center; color: white; text-decoration: none; }
         
         .state-active { background: #ea580c; }
         .state-inactive { background: #16a34a; }
@@ -195,7 +189,31 @@ INTERFACE_HTML = """
 
         <div class="card">
             <h2>Your Active Scripts</h2>
-            <div id="localFilesList">⚡ Loading scripts from server...</div>
+            {% if not bots_list %}
+                <p style="text-align: center; color: #64748b; font-size: 13px; padding: 10px;">No script found.</p>
+            {% else %}
+                {% for bot in bots_list %}
+                <div class="script-wrapper">
+                    <div class="script-item">
+                        <div class="script-info">
+                            <h4>{{ bot.filename }}</h4>
+                            <p>ID: {{ bot.id }}</p>
+                        </div>
+                        <div>
+                            <span class="badge-status {{ bot.status.lower() }}">{{ bot.status }}</span>
+                        </div>
+                    </div>
+                    <div class="control-panel">
+                        {% if bot.status == "ON" %}
+                            <a href="/status/{{ bot.id }}/OFF" class="control-btn state-active">OFF</a>
+                        {% else %}
+                            <a href="/status/{{ bot.id }}/ON" class="control-btn state-inactive">ON</a>
+                        {% endif %}
+                        <a href="/delete/{{ bot.id }}" class="control-btn btn-delete">DELETE</a>
+                    </div>
+                </div>
+                {% endfor %}
+            {% endif %}
         </div>
         
         <div style="text-align: center; margin-top: 15px;">
@@ -203,88 +221,28 @@ INTERFACE_HTML = """
         </div>
         {% endif %}
     </div>
-
-    <script>
-        async function loadGlobalScripts() {
-            const listContainer = document.getElementById('localFilesList');
-            if (!listContainer) return;
-
-            try {
-                let response = await fetch("{{ db_url }}/active_bots.json?t=" + new Date().getTime());
-                let dbData = await response.json();
-
-                if (!dbData || Object.keys(dbData).length === 0) {
-                    listContainer.innerHTML = '<p style="text-align: center; color: #64748b; font-size: 13px; padding: 10px;">No script found.</p>';
-                    return;
-                }
-
-                listContainer.innerHTML = '';
-                
-                Object.keys(dbData).forEach(id => {
-                    if (!dbData[id] || typeof dbData[id] !== 'object') return;
-                    
-                    let filename = dbData[id].filename || dbData[id].file_name || "Unknown File";
-                    let currentStatus = dbData[id].status || "ON";
-                    let badgeClass = currentStatus.toLowerCase();
-                    
-                    let toggleBtnText = (currentStatus === "ON") ? "OFF" : "ON";
-                    let toggleBtnClass = (currentStatus === "ON") ? "state-active" : "state-inactive";
-
-                    listContainer.innerHTML += `
-                        <div class="script-wrapper" id="wrapper-${id}">
-                            <div class="script-item">
-                                <div class="script-info">
-                                    <h4>${filename}</h4>
-                                    <p>ID: ${id}</p>
-                                </div>
-                                <div>
-                                    <span class="badge-status ${badgeClass}" id="badge-${id}">${currentStatus}</span>
-                                </div>
-                            </div>
-                            <div class="control-panel">
-                                <button class="control-btn ${toggleBtnClass}" id="toggle-${id}" onclick="toggleStatus('${id}')">${toggleBtnText}</button>
-                                <button class="control-btn btn-delete" onclick="triggerDelete('${id}')">DELETE</button>
-                            </div>
-                        </div>
-                    `;
-                });
-            } catch(e) {
-                listContainer.innerHTML = '<p style="text-align: center; color: #ef4444; font-size: 13px;">Sync Error.</p>';
-            }
-        }
-
-        async function toggleStatus(id) {
-            let badge = document.getElementById(`badge-${id}`);
-            let btn = document.getElementById(`toggle-${id}`);
-            if(!badge || !btn) return;
-            
-            let currentAction = badge.innerText;
-            let nextAction = (currentAction === "ON") ? "OFF" : "ON";
-            
-            badge.innerText = nextAction;
-            badge.className = `badge-status ${nextAction.toLowerCase()}`;
-            
-            btn.innerText = (nextAction === "ON") ? "OFF" : "ON";
-            btn.className = `control-btn ${(nextAction === "ON") ? "state-active" : "state-inactive"}`;
-            
-            await fetch(`/status/${id}/${nextAction}`);
-        }
-
-        async function triggerDelete(id) {
-            let elem = document.getElementById(`wrapper-${id}`);
-            if(elem) elem.remove();
-            window.location.href = `/delete/${id}`;
-        }
-
-        document.addEventListener("DOMContentLoaded", loadGlobalScripts);
-    </script>
 </body>
 </html>
 """
 
 @app.route('/')
 def home():
-    return render_template_string(INTERFACE_HTML, db_url=FIREBASE_DB_URL)
+    bots_list = []
+    try:
+        res = requests.get(f"{FIREBASE_DB_URL}/active_bots.json", timeout=10)
+        if res.status_code == 200 and res.json():
+            db_data = res.json()
+            for id_key, val in db_data.items():
+                if val and isinstance(val, dict):
+                    bots_list.append({
+                        "id": id_key,
+                        "filename": val.get("filename") or val.get("file_name") or "Unknown File",
+                        "status": val.get("status", "ON")
+                    })
+    except Exception as e:
+        print(f"Error fetching for server side render: {str(e)}")
+        
+    return render_template_string(INTERFACE_HTML, bots_list=bots_list)
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -325,7 +283,7 @@ def upload_file():
     try:
         requests.put(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json", json=db_data, timeout=10)
         execute_bot(target_dir, filename, unique_id)
-        flash(f"{filename} Uploaded & Process Isolation Started!", "success")
+        flash(f"{filename} Uploaded & Execution Started!", "success")
     except Exception as e:
         flash(f"Uploaded but DB Sync Failed: {str(e)}", "error")
         
@@ -333,7 +291,7 @@ def upload_file():
 
 @app.route('/status/<unique_id>/<action>')
 def change_bot_status(unique_id, action):
-    if not session.get('logged_in'): return "Unauthorized", 401
+    if not session.get('logged_in'): return redirect(url_for('home'))
         
     try:
         res = requests.get(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json", timeout=10)
@@ -355,9 +313,9 @@ def change_bot_status(unique_id, action):
                         f.write(base64.b64decode(db_data.get("file_data").encode('utf-8')))
                 execute_bot(target_dir, filename, unique_id)
     except Exception as e:
-        print(f"Error handling status endpoint: {str(e)}")
+        print(f"Error handling status: {str(e)}")
             
-    return "OK", 200
+    return redirect(url_for('home'))
 
 @app.route('/delete/<unique_id>')
 def delete_script(unique_id):
@@ -370,7 +328,7 @@ def delete_script(unique_id):
             shutil.rmtree(target_dir)
 
         requests.delete(f"{FIREBASE_DB_URL}/active_bots/{unique_id}.json", timeout=10)
-        flash("Script removed from system permanently.", "success")
+        flash("Script removed permanently.", "success")
     except Exception as e:
         flash(f"Delete action exception: {str(e)}", "error")
         
