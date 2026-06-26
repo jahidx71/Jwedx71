@@ -3,7 +3,7 @@ import os
 import sys
 import subprocess
 
-# --- প্রয়োজনীয় সব প্যাকেজ অটো-ইনস্টল মেকানিজম ---
+# --- প্রয়োজনীয় ডিপেনডেন্সি অটো-ইনস্টল মেকানিজম ---
 def install_essential_packages():
     essentials = ["flask", "requests", "pyTelegramBotAPI", "python-telegram-bot", "aiohttp"]
     print("📦 Checking and installing essential packages...")
@@ -18,19 +18,42 @@ install_essential_packages()
 import zipfile
 import shutil
 import time
-import base64
+import json
 import threading
-import requests
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session
 
 app = Flask('')
-app.secret_key = "x71_secret_key_secure_local"
+app.secret_key = "x71_secret_key_secure_local_prod"
 
-# --- আপনার ফায়ারবেস কনফিগারেশন (শেষে / ফিক্স করা হয়েছে) ---
-FIREBASE_DB_URL = "https://x71-hosting-panel-default-rtdb.firebaseio.com/" 
+# লোকাল ডিরেক্টরি পাথ সেটিংস
+BASE_DIR = os.getcwd()
+BOTS_DIR = os.path.join(BASE_DIR, "hosted_bots")
+STATUS_FILE = os.path.join(BASE_DIR, "bots_status.json")
 
+os.makedirs(BOTS_DIR, exist_ok=True)
+
+# রানিং ওএস প্রসেস ট্র্যাকিং ডিকশনারি
 running_processes = {}
 
+# লোকাল ফাইল থেকে স্ট্যাটাস (ON/OFF) রিড করা
+def load_status_config():
+    if os.path.exists(STATUS_FILE):
+        try:
+            with open(STATUS_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+# লোকাল ফাইলে স্ট্যাটাস সেভ করা
+def save_status_config(config):
+    try:
+        with open(STATUS_FILE, "w") as f:
+            json.dump(config, f, indent=4)
+    except Exception as e:
+        print(f"❌ Failed to save status config: {str(e)}")
+
+# আইসোলেটেড বকার থ্রেড (কোড খারাপ হলেও মেইন প্যানেল সেভ থাকবে)
 def run_bot_worker(target_dir, filename, unique_id):
     try:
         file_path = os.path.join(target_dir, filename)
@@ -52,14 +75,15 @@ def run_bot_worker(target_dir, filename, unique_id):
         else:
             full_run_path = file_path
 
+        # ওএস লেভেলে ব্যাকগ্রাউন্ডে রান করানো হলো
         if executable_filename.endswith('.py'):
             proc = subprocess.Popen([sys.executable, full_run_path], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename}
+            running_processes[unique_id] = proc
         elif executable_filename.endswith('.js'):
             proc = subprocess.Popen(["node", full_run_path], cwd=target_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            running_processes[unique_id] = {"process": proc, "path": target_dir, "filename": filename}
+            running_processes[unique_id] = proc
             
-        print(f"🚀 Thread Started Process for: {filename}")
+        print(f"🚀 Started Bot Process: {filename} (ID: {unique_id})")
     except Exception as e:
         print(f"❌ Worker Exception for {unique_id}: {str(e)}")
 
@@ -72,44 +96,35 @@ def execute_bot(target_dir, filename, unique_id):
 def stop_bot_process(unique_id):
     if unique_id in running_processes:
         try:
-            running_processes[unique_id]["process"].terminate()
-            running_processes[unique_id]["process"].wait(timeout=1)
+            running_processes[unique_id].terminate()
+            running_processes[unique_id].wait(timeout=1)
         except:
             try:
-                running_processes[unique_id]["process"].kill()
+                running_processes[unique_id].kill()
             except:
                 pass
         running_processes.pop(unique_id, None)
 
-def restore_all_scripts():
-    print("🔄 Booting & Restoring Active Scripts from Firebase...")
-    try:
-        res = requests.get(f"{FIREBASE_DB_URL}active_bots.json", timeout=10)
-        if res.status_code == 200 and res.json():
-            bots = res.json()
-            for unique_id, info in bots.items():
-                if not info or not isinstance(info, dict): continue
-                status = info.get("status", "ON")
-                if status == "ON":
-                    filename = info.get("filename") or info.get("file_name")
-                    file_data_b64 = info.get("file_data")
-                    
-                    if filename and file_data_b64:
-                        target_dir = os.path.join(os.getcwd(), "hosted_bots", unique_id)
-                        os.makedirs(target_dir, exist_ok=True)
-                        file_path = os.path.join(target_dir, filename)
-                        
-                        with open(file_path, "wb") as f:
-                            f.write(base64.b64decode(file_data_b64.encode('utf-8')))
-                        
-                        execute_bot(target_dir, filename, unique_id)
-    except Exception as e:
-        print(f"❌ Auto-Restore Exception: {str(e)}")
+# 🔄 রিস্টার্ট বা বুট হওয়ার সাথে সাথে লোকাল ফাইল থেকে অটো-রান করার মেকানিজম
+def auto_restore_local_bots():
+    print("🔄 Render Restarted! Scanning local files to auto-run bots...")
+    config = load_status_config()
+    if os.path.exists(BOTS_DIR):
+        for unique_id in os.listdir(BOTS_DIR):
+            specific_dir = os.path.join(BOTS_DIR, unique_id)
+            if os.path.isdir(specific_dir):
+                files = [f for f in os.listdir(specific_dir) if f.endswith(('.py', '.js', '.zip'))]
+                if files:
+                    filename = files[0]
+                    # যদি স্ট্যাটাস কনফিগে OFF না থাকে, তবে বাই-ডিফল্ট ON করে রান করা হবে
+                    bot_status = config.get(unique_id, "ON")
+                    if bot_status == "ON":
+                        execute_bot(specific_dir, filename, unique_id)
 
 with app.app_context():
-    restore_all_scripts()
+    auto_restore_local_bots()
 
-# --- সম্পূর্ণ সার্ভার-সাইড রেন্ডার করা মোবাইল ফ্রেন্ডলি ইন্টারফেস ---
+# --- সম্পূর্ণ মোবাইল ফ্রেন্ডলি রেন্ডার করা ইন্টারফেস ---
 INTERFACE_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -227,40 +242,22 @@ INTERFACE_HTML = """
 
 @app.route('/')
 def home():
-    bots_dict = {}
-    
-    # ব্যাকআপ মেকানিজম ১: ফায়ারবেস থেকে ডাটা রিড করার চেষ্টা
-    try:
-        res = requests.get(f"{FIREBASE_DB_URL}active_bots.json", timeout=10)
-        if res.status_code == 200 and res.json():
-            bots_dict = res.json()
-    except Exception as e:
-        print(f"Firebase fetch failed, falling back to local storage scan: {str(e)}")
-
-    # ব্যাকআপ মেকানিজম ২: ফায়ারবেস কাজ না করলে লোকাল ফোল্ডার স্ক্যান করে ড্যাশবোর্ড লাইভ রাখা
-    local_bots_dir = os.path.join(os.getcwd(), "hosted_bots")
-    if os.path.exists(local_bots_dir):
-        for unique_id in os.listdir(local_bots_dir):
-            if unique_id not in bots_dict:
-                specific_dir = os.path.join(local_bots_dir, unique_id)
-                if os.path.isdir(specific_dir):
-                    files = os.listdir(specific_dir)
-                    if files:
-                        bots_dict[unique_id] = {
-                            "filename": files[0],
-                            "status": "ON" if unique_id in running_processes else "OFF"
-                        }
-
-    # ড্যাশবোর্ডের জন্য লিস্ট সাজানো
     bots_list = []
-    for id_key, val in bots_dict.items():
-        if val and isinstance(val, dict):
-            bots_list.append({
-                "id": id_key,
-                "filename": val.get("filename") or val.get("file_name") or "Unknown File",
-                "status": val.get("status", "ON")
-            })
-            
+    config = load_status_config()
+    
+    # লোকাল ডিরেক্টরি থেকে সরাসরি ডাটা রেন্ডার করা (১০০% মোবাইল ফ্রেন্ডলি)
+    if os.path.exists(BOTS_DIR):
+        for unique_id in os.listdir(BOTS_DIR):
+            specific_dir = os.path.join(BOTS_DIR, unique_id)
+            if os.path.isdir(specific_dir):
+                files = [f for f in os.listdir(specific_dir) if f.endswith(('.py', '.js', '.zip'))]
+                if files:
+                    bots_list.append({
+                        "id": unique_id,
+                        "filename": files[0],
+                        "status": config.get(unique_id, "ON")
+                    })
+                    
     return render_template_string(INTERFACE_HTML, bots_list=bots_list)
 
 @app.route('/login', methods=['POST'])
@@ -288,22 +285,16 @@ def upload_file():
     filename = file.filename
     unique_id = str(int(time.time()))
     
-    target_dir = os.path.join(os.getcwd(), "hosted_bots", unique_id)
+    target_dir = os.path.join(BOTS_DIR, unique_id)
     os.makedirs(target_dir, exist_ok=True)
     file_path = os.path.join(target_dir, filename)
     file.save(file_path)
     
-    with open(file_path, "rb") as f:
-        file_bytes = f.read()
-    file_b64_string = base64.b64encode(file_bytes).decode('utf-8')
-
-    db_data = {"filename": filename, "file_data": file_b64_string, "status": "ON"}
+    # স্ট্যাটাস ফাইলে স্টোর করা
+    config = load_status_config()
+    config[unique_id] = "ON"
+    save_status_config(config)
     
-    try:
-        requests.put(f"{FIREBASE_DB_URL}active_bots/{unique_id}.json", json=db_data, timeout=10)
-    except Exception as e:
-        print(f"DB Sync Failed but file saved locally: {str(e)}")
-        
     execute_bot(target_dir, filename, unique_id)
     flash(f"{filename} Uploaded & Executed Successfully!", "success")
         
@@ -313,27 +304,19 @@ def upload_file():
 def change_bot_status(unique_id, action):
     if not session.get('logged_in'): return redirect(url_for('home'))
     
-    filename = "Unknown File"
-    target_dir = os.path.join(os.getcwd(), "hosted_bots", unique_id)
+    config = load_status_config()
+    config[unique_id] = action
+    save_status_config(config)
     
+    target_dir = os.path.join(BOTS_DIR, unique_id)
     if os.path.exists(target_dir):
-        files = os.listdir(target_dir)
-        if files: filename = files[0]
-        
-    try:
-        res = requests.get(f"{FIREBASE_DB_URL}active_bots/{unique_id}.json", timeout=10)
-        if res.status_code == 200 and res.json():
-            db_data = res.json()
-            db_data["status"] = action
-            filename = db_data.get("filename") or db_data.get("file_name") or filename
-            requests.put(f"{FIREBASE_DB_URL}active_bots/{unique_id}.json", json=db_data, timeout=10)
-    except Exception as e:
-        print(f"Error updating Firebase status: {str(e)}")
-            
-    if action == "OFF":
-        stop_bot_process(unique_id)
-    elif action == "ON":
-        execute_bot(target_dir, filename, unique_id)
+        files = [f for f in os.listdir(target_dir) if f.endswith(('.py', '.js', '.zip'))]
+        if files:
+            filename = files[0]
+            if action == "OFF":
+                stop_bot_process(unique_id)
+            elif action == "ON":
+                execute_bot(target_dir, filename, unique_id)
             
     return redirect(url_for('home'))
 
@@ -343,11 +326,15 @@ def delete_script(unique_id):
         
     try:
         stop_bot_process(unique_id)
-        target_dir = os.path.join(os.getcwd(), "hosted_bots", unique_id)
+        target_dir = os.path.join(BOTS_DIR, unique_id)
         if os.path.exists(target_dir):
             shutil.rmtree(target_dir)
 
-        requests.delete(f"{FIREBASE_DB_URL}active_bots/{unique_id}.json", timeout=10)
+        config = load_status_config()
+        if unique_id in config:
+            config.pop(unique_id)
+            save_status_config(config)
+            
         flash("Script removed permanently.", "success")
     except Exception as e:
         flash(f"Delete action exception: {str(e)}", "error")
